@@ -147,6 +147,7 @@ footer{margin-top:40px;font-size:13px;color:var(--ink-2);border-top:1px solid va
         <button id="brainRules" aria-pressed="true">Rules engine</button>
         <button id="brainLLM" aria-pressed="false">Claude</button>
       </div>
+      <select id="voiceSel" aria-label="Agent voice" title="Which browser voice speaks the agent's lines"></select>
     </div>
     <div class="borrower" id="borrowerCard"></div>
 
@@ -322,6 +323,8 @@ const DATE_WORDS = [
   [/\b(evening|shaam)\b|शाम/i,"this evening"],[/\b(\d{1,2})\s*(tarikh|tareekh|th|st|nd|rd)?\b/i,m=>`the ${m[1]}th`],
 ];
 function extractDate(t){ for(const [rx,v] of DATE_WORDS){const m=t.match(rx); if(m) return typeof v==="function"?v(m):v;} return "the due date"; }
+const HI_DATE={"today":"आज","tomorrow":"कल","the day after tomorrow":"परसों","Monday":"सोमवार","Tuesday":"मंगलवार","Wednesday":"बुधवार","Thursday":"गुरुवार","Friday":"शुक्रवार","Saturday":"शनिवार","Sunday":"रविवार","this evening":"आज शाम","the due date":"देय तिथि"};
+function dateForSpeech(d, lang){ if(lang!=="hi"||!d) return d; if(HI_DATE[d]) return HI_DATE[d]; const m=d.match(/^the (\d{1,2})th$/); return m?`${m[1]} तारीख`:d; }
 
 function classify(text, state){
   const t=text.toLowerCase();
@@ -350,7 +353,7 @@ function rulesStep(ctx, text){
     else if(intent==="wrong_party"){ reply=L.wrong(); next="ended"; flags.push("wrong_party"); }
     else { ctx.reprompts++; if(ctx.reprompts>2){ reply=L.handoffUnclear(); next="handoff"; flags.push("unclear"); } else { reply=L.verifyAgain(b); } }
   } else if(ctx.state==="intent"){
-    if(intent==="ptp"){ ptpDate=extractDate(text); reply=L.ptp(b,ptpDate)+" "+L.close(); next="ended"; }
+    if(intent==="ptp"){ ptpDate=extractDate(text); reply=L.ptp(b,dateForSpeech(ptpDate,ctx.lang))+" "+L.close(); next="ended"; }
     else if(intent==="extension"){ reply=L.ext(b)+" "+L.close(); next="ended"; flags.push("extension"); }
     else if(intent==="waiver"){ reply=L.dispute(); next="handoff"; flags.push("waiver_request"); }
     else if(intent==="dispute"){ reply=L.dispute(); next="handoff"; flags.push("dispute"); }
@@ -412,9 +415,11 @@ function loadVoices(){
     speechSynthesis.onvoiceschanged=done; setTimeout(done,1500);
   });
 }
-let warnedNoHindiVoice=false;
+let warnedNoHindiVoice=false, lastVoiceName="";
 function pickVoice(voices, lang){
   const norm=v=>v.lang.replace("_","-").toLowerCase();
+  const chosen=$("voiceSel").value;
+  if(chosen&&chosen!=="auto"){ const m=voices.find(v=>v.name===chosen); if(m) return m; }
   if(lang==="hi"){
     /* Hindi text must never go to an English voice: it skips the Devanagari and reads only the numbers. */
     const hi=voices.filter(v=>norm(v).startsWith("hi"));
@@ -427,6 +432,7 @@ async function speak(text){
   if(!hasTTS) return;
   const voices=await loadVoices();
   const v=pickVoice(voices, ctx.lang);
+  lastVoiceName=v?`${v.name}${v.localService?"":" (online)"}`:"browser default";
   if(ctx.lang==="hi"&&!v&&!warnedNoHindiVoice){ warnedNoHindiVoice=true; addTurn("sys","No Hindi voice is installed in this browser, so Hindi replies may be silent or read oddly. Chrome desktop usually has “Google हिन्दी”; on macOS add Hindi (Lekha) under Accessibility → Spoken Content → System voice."); }
   /* Chrome cuts off utterances longer than ~15 s, so speak sentence by sentence. */
   const parts=text.split(/(?<=[।\.\?!])\s+/).filter(Boolean);
@@ -442,7 +448,20 @@ async function speak(text){
   }
   speaking=false; $("mic").classList.remove("speaking");
 }
-async function agentSays(text, meta){ addTurn("agent",text,meta); await speak(text); }
+async function agentSays(text, meta){
+  addTurn("agent",text,meta);
+  const el=$("transcript").lastElementChild;
+  await speak(text);
+  if(hasTTS&&el){ let s=el.querySelector("small"); if(!s){ s=document.createElement("small"); el.appendChild(s); } s.textContent=(meta?meta+" · ":"")+"voice: "+lastVoiceName; }
+}
+async function populateVoices(){
+  const voices=await loadVoices(); const sel=$("voiceSel"); const prev=sel.value;
+  const list=voices.filter(v=>v.lang.replace("_","-").toLowerCase().startsWith(ctx.lang==="hi"?"hi":"en"));
+  sel.innerHTML="";
+  const auto=document.createElement("option"); auto.value="auto"; auto.textContent=list.length?`Voice: auto (${list.length} ${ctx.lang==="hi"?"Hindi":"English"})`:`Voice: none for ${ctx.lang==="hi"?"Hindi":"English"}`; sel.appendChild(auto);
+  list.forEach(v=>{ const o=document.createElement("option"); o.value=v.name; o.textContent=`${v.name}${v.localService?"":" (online)"}`; sel.appendChild(o); });
+  if([...sel.options].some(o=>o.value===prev)) sel.value=prev;
+}
 
 async function startCall(){
   resetCall(false);
@@ -568,7 +587,7 @@ function runEvals(){
 /* ---------- wiring ---------- */
 BORROWERS.forEach((b,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=`${b.name} · ${b.id}`; $("borrowerSel").appendChild(o); });
 $("borrowerSel").onchange=e=>{ ctx.borrower=BORROWERS[+e.target.value]; setLang(ctx.borrower.lang); renderBorrower(); resetCall(); };
-function setLang(l){ ctx.lang=l; $("langEn").setAttribute("aria-pressed",l==="en"); $("langHi").setAttribute("aria-pressed",l==="hi"); }
+function setLang(l){ ctx.lang=l; $("langEn").setAttribute("aria-pressed",l==="en"); $("langHi").setAttribute("aria-pressed",l==="hi"); populateVoices(); }
 $("langEn").onclick=()=>{setLang("en");}; $("langHi").onclick=()=>{setLang("hi");};
 function setBrain(b){ ctx.brain=b; $("brainRules").setAttribute("aria-pressed",b==="rules"); $("brainLLM").setAttribute("aria-pressed",b==="llm"); }
 $("brainRules").onclick=()=>setBrain("rules"); $("brainLLM").onclick=()=>setBrain("llm");
@@ -580,7 +599,7 @@ $("newCall").onclick=()=>resetCall();
 $("showJson").onclick=()=>{ const j=$("jsonOut"); j.hidden=!j.hidden; $("showJson").textContent=j.hidden?"Show JSON":"Hide JSON"; };
 $("runEval").onclick=runEvals;
 setLang(ctx.borrower.lang); renderBorrower();
-if(hasTTS){ loadVoices(); }
+if(hasTTS){ populateVoices(); speechSynthesis.addEventListener?.("voiceschanged",()=>populateVoices()); } else { $("voiceSel").hidden=true; }
 if(!hasSTT){ $("hintBody").textContent="Voice input needs Chrome or Edge. In this browser, press the mic to start and then type the borrower's replies; the agent still speaks aloud."; }
 </script>
 <script type="module">
