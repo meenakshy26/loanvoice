@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LoanVoice — a Hindi/English voice agent for pre-due EMI calls</title>
+<meta name="description" content="A working voice AI agent for lending collections: STT, an agent brain with guardrails, TTS, handoff to humans, and post-call speech analytics. Built by Meenakshy Bijoy.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<style>
+:root{
+  --paper:#F6F7F5; --surface:#FFFFFF; --ink:#16221E; --ink-2:#4B5551; --line:#D9DED9;
+  --call:#0F6E56; --call-soft:#DDEFE7; --amber:#B9741B; --amber-soft:#F7EAD2; --red:#A33A2A; --red-soft:#F6DED9;
+  --agent:#EEF3F0; --borrower:#FFFFFF;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --paper:#111816; --surface:#18211E; --ink:#E7ECE8; --ink-2:#A3ADA7; --line:#2C3833;
+  --call:#4FC39E; --call-soft:#163A2F; --amber:#E0A14A; --amber-soft:#3C2E14; --red:#E07A68; --red-soft:#3F1F19;
+  --agent:#1F2B26; --borrower:#18211E; color-scheme:dark; } }
+:root[data-theme="dark"]{
+  --paper:#111816; --surface:#18211E; --ink:#E7ECE8; --ink-2:#A3ADA7; --line:#2C3833;
+  --call:#4FC39E; --call-soft:#163A2F; --amber:#E0A14A; --amber-soft:#3C2E14; --red:#E07A68; --red-soft:#3F1F19;
+  --agent:#1F2B26; --borrower:#18211E; color-scheme:dark; }
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:inherit;margin:0}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--call)}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--call);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:28px}
+header h1{font-family:"Source Serif 4",Georgia,serif;font-weight:600;font-size:clamp(28px,4vw,40px);line-height:1.1;letter-spacing:-.01em}
+header p{color:var(--ink-2);max-width:62ch}
+.by{font-size:14px;color:var(--ink-2)}
+.by a{color:inherit}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:20px}
+@media (max-width:880px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px}
+.panel h2{font-size:15px;font-weight:600;margin-bottom:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+select,input[type=text]{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{padding:7px 12px;background:transparent;border:0;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+
+.borrower{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:14px;margin:12px 0 4px;padding:12px;border:1px dashed var(--line);border-radius:10px}
+.borrower b{font-weight:600}
+.borrower span{color:var(--ink-2)}
+
+.stage{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin:16px 0}
+.mic{position:relative;width:88px;height:88px;border-radius:50%;border:0;background:var(--call);color:#fff;display:grid;place-items:center;transition:transform .15s}
+.mic:disabled{background:var(--line);color:var(--ink-2);cursor:not-allowed}
+.mic.listening{background:var(--red)}
+.mic.listening::after{content:"";position:absolute;inset:-8px;border-radius:50%;border:2px solid var(--red);animation:pulse 1.2s ease-out infinite}
+.mic.speaking{background:var(--ink)}
+@keyframes pulse{from{transform:scale(.9);opacity:.9}to{transform:scale(1.25);opacity:0}}
+@media (prefers-reduced-motion:reduce){.mic.listening::after{animation:none}}
+.mic svg{width:34px;height:34px}
+.stage .hint{font-size:14px;color:var(--ink-2)}
+.stage .hint strong{color:var(--ink);font-weight:600;display:block;font-size:15px}
+.state-pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--call-soft);color:var(--call);font-weight:600;margin-top:6px}
+.state-pill.handoff{background:var(--amber-soft);color:var(--amber)}
+.state-pill.ended{background:var(--line);color:var(--ink-2)}
+
+.transcript{font-family:"Source Serif 4",Georgia,serif;font-size:17px;line-height:1.55;display:flex;flex-direction:column;gap:10px;min-height:200px;max-height:420px;overflow-y:auto;padding:4px 2px}
+.turn{max-width:88%;padding:10px 14px;border-radius:14px;position:relative}
+.turn.agent{background:var(--agent);align-self:flex-start;border-bottom-left-radius:4px}
+.turn.borrower{background:var(--borrower);border:1px solid var(--line);align-self:flex-end;border-bottom-right-radius:4px}
+.turn small{display:block;font-family:"IBM Plex Sans",sans-serif;font-size:11px;color:var(--ink-2);margin-top:4px}
+.turn.sys{align-self:center;background:transparent;color:var(--ink-2);font-family:"IBM Plex Sans",sans-serif;font-size:13px;padding:2px}
+.empty{color:var(--ink-2);font-family:"IBM Plex Sans",sans-serif;font-size:14px;padding:30px 0;text-align:center}
+.typebar{display:flex;gap:8px;margin-top:10px}
+.typebar input{flex:1}
+.btn{padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:14px}
+.btn.primary{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.btn.quiet{border-color:transparent;color:var(--ink-2)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.lat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.lat div{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;color:var(--ink-2)}
+.lat b{display:block;font-size:20px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+
+.analytics .score{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.analytics .score b{font-size:44px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.analytics .score span{color:var(--ink-2);font-size:14px}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:6px 12px;font-size:14px;margin-bottom:14px}
+.kv dt{color:var(--ink-2)}
+.kv dd{font-weight:500}
+.check{list-style:none;padding:0;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.check li{display:flex;gap:8px;align-items:flex-start}
+.check li::before{content:"";flex:none;width:16px;height:16px;border-radius:50%;margin-top:3px;background:var(--line)}
+.check li.pass::before{background:var(--call)}
+.check li.fail::before{background:var(--red)}
+.check li.na::before{background:var(--line)}
+.muted{color:var(--ink-2);font-size:14px}
+.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);margin:2px 4px 2px 0;color:var(--ink-2)}
+pre.json{font-size:12px;line-height:1.45;background:var(--agent);padding:10px;border-radius:8px;overflow:auto;max-height:220px;margin-top:10px}
+
+section.below{margin-top:36px}
+section.below h2{font-family:"Source Serif 4",Georgia,serif;font-weight:600;font-size:24px;margin-bottom:6px}
+section.below > p{color:var(--ink-2);max-width:70ch;margin-bottom:16px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:880px){.two{grid-template-columns:1fr}}
+.mermaid-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface)}
+pre.mermaid{font-size:14px;background:transparent}
+.rules{counter-reset:r;list-style:none;padding:0;display:flex;flex-direction:column;gap:10px;font-size:15px}
+.rules li{padding-left:28px;position:relative}
+.rules li::before{counter-increment:r;content:counter(r);position:absolute;left:0;top:2px;width:20px;height:20px;border-radius:50%;background:var(--ink);color:var(--paper);font-size:12px;display:grid;place-items:center;font-weight:600}
+.rules li b{font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--ink-2);font-size:13px}
+td.res{white-space:nowrap;font-weight:600}
+td.res.pass{color:var(--call)} td.res.fail{color:var(--red)}
+.tablewrap{overflow-x:auto}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;font-size:14px}
+.notes div{border-top:2px solid var(--ink);padding-top:10px}
+.notes b{display:block;font-weight:600;margin-bottom:4px}
+.notes p{color:var(--ink-2)}
+footer{margin-top:40px;font-size:13px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>LoanVoice</h1>
+    <p>A working Hindi/English voice agent that makes a pre-due EMI reminder call, handles what the borrower actually says, hands off when it should, and scores itself afterwards.</p>
+  </div>
+  <div class="by">Built by <a href="https://www.linkedin.com/in/meenakshybijoy26">Meenakshy Bijoy</a><br>Product prototype, not a client deployment</div>
+</header>
+
+<div class="grid">
+  <!-- CALL PANEL -->
+  <div class="panel" id="callPanel">
+    <h2>Live call</h2>
+    <div class="row">
+      <label class="muted" for="borrowerSel">Borrower</label>
+      <select id="borrowerSel"></select>
+      <div class="seg" role="group" aria-label="Language">
+        <button id="langEn" aria-pressed="true">English</button>
+        <button id="langHi" aria-pressed="false">हिंदी</button>
+      </div>
+      <div class="seg" role="group" aria-label="Agent brain" title="Claude is used when this page runs inside claude.ai and you allow it; otherwise the deterministic engine runs.">
+        <button id="brainRules" aria-pressed="true">Rules engine</button>
+        <button id="brainLLM" aria-pressed="false">Claude</button>
+      </div>
+    </div>
+    <div class="borrower" id="borrowerCard"></div>
+
+    <div class="stage">
+      <button class="mic" id="mic" aria-label="Start call">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+      </button>
+      <div class="hint">
+        <strong id="hintTitle">Press to start the call</strong>
+        <span id="hintBody">The agent speaks first. When it finishes, the mic opens and you answer as the borrower. Use Chrome or Edge for voice; typing works everywhere.</span>
+        <div><span class="state-pill" id="statePill">idle</span></div>
+      </div>
+    </div>
+
+    <div class="transcript" id="transcript"><div class="empty">Transcript appears here. Try answering: "haan bol raha hoon", "kal kar dunga", "I already paid", "thoda time chahiye", or "meri naukri chali gayi".</div></div>
+
+    <div class="typebar">
+      <input type="text" id="typed" placeholder="Or type the borrower's reply and press Enter" aria-label="Type the borrower's reply">
+      <button class="btn" id="sendTyped">Send</button>
+      <button class="btn quiet" id="endCall">End call</button>
+    </div>
+
+    <div class="lat">
+      <div>Speech to text <b id="latStt">—</b></div>
+      <div>Agent decision <b id="latBrain">—</b></div>
+      <div>Reply started <b id="latTts">—</b></div>
+    </div>
+  </div>
+
+  <!-- ANALYTICS PANEL -->
+  <div class="panel analytics" id="analytics">
+    <h2>Post-call analytics</h2>
+    <div id="analyticsEmpty" class="muted">Appears when the call ends. The analyser reads the transcript and produces the fields a collections QA team actually audits: outcome, promise-to-pay, compliance checklist, sentiment, and a quality score.</div>
+    <div id="analyticsBody" hidden>
+      <div class="score"><b id="score">0</b><span>quality score / 100</span></div>
+      <dl class="kv">
+        <dt>Outcome</dt><dd id="aOutcome"></dd>
+        <dt>Promise to pay</dt><dd id="aPtp"></dd>
+        <dt>Borrower sentiment</dt><dd id="aSent"></dd>
+        <dt>Handoff</dt><dd id="aHand"></dd>
+        <dt>Turns</dt><dd id="aTurns"></dd>
+      </dl>
+      <ul class="check" id="checks"></ul>
+      <div style="margin-top:12px"><button class="btn" id="showJson">Show JSON</button> <button class="btn quiet" id="newCall">New call</button></div>
+      <pre class="json" id="jsonOut" hidden></pre>
+    </div>
+  </div>
+</div>
+
+<section class="below">
+  <h2>Conversation design</h2>
+  <p>Every call walks the same state machine whether the rules engine or Claude is driving. The brain decides the words; the state machine decides what is allowed. That split is what keeps a regulated call safe to automate.</p>
+  <div class="mermaid-wrap">
+<pre class="mermaid">
+stateDiagram-v2
+    [*] --> Greet
+    Greet --> Verify: agent discloses identity and purpose
+    Verify --> Disclose: borrower confirms
+    Verify --> WrongParty: borrower denies / not available
+    WrongParty --> [*]: no loan details shared
+    Disclose --> Intent: EMI amount and due date stated
+    Intent --> PTP: "will pay" (date captured)
+    Intent --> Extension: "need time"
+    Intent --> Dispute: "already paid" / "wrong amount"
+    Intent --> Distress: job loss, illness, bereavement
+    Intent --> Intent: unclear (max 2 reprompts)
+    Intent --> Handoff: still unclear
+    PTP --> Close
+    Extension --> Close: offer callback, no waiver promised
+    Dispute --> Handoff
+    Distress --> Handoff
+    Handoff --> [*]: human agent, warm transfer note
+    Close --> [*]: grievance channel stated
+</pre>
+  </div>
+</section>
+
+<section class="below">
+  <div class="two">
+    <div>
+      <h2>Guardrails</h2>
+      <p>Hard rules enforced in code, not just in the prompt.</p>
+      <ol class="rules">
+        <li><b>Identify first.</b> The agent names itself as an automated assistant from the lender in the first sentence. No loan detail is spoken before identity is confirmed.</li>
+        <li><b>Never promise a waiver.</b> Requests for interest or penalty waivers are acknowledged and routed to a human. The agent has no vocabulary for "waived".</li>
+        <li><b>Never threaten.</b> Words implying legal action, visits, or consequences are blocked at the output layer. If the brain produces one, the line is replaced and logged.</li>
+        <li><b>Distress ends automation.</b> Mentions of job loss, hospitalisation, death in the family or self-harm trigger an immediate, empathetic handoff. No payment ask follows.</li>
+        <li><b>Two reprompts, then a human.</b> If intent is still unclear after two tries, the agent stops guessing.</li>
+        <li><b>Always close with the grievance channel.</b> Every completed call states how to raise a complaint, as RBI's Fair Practices Code expects.</li>
+      </ol>
+    </div>
+    <div>
+      <h2>Why these choices</h2>
+      <div class="notes">
+        <div><b>Browser STT/TTS first</b><p>The Web Speech API ships in Chrome with hi-IN and en-IN voices, which makes the demo zero-dependency. In production this swaps for a streaming ASR tuned on Indian code-mixed speech and a lower-latency TTS; the state machine does not change.</p></div>
+        <div><b>Two brains, one contract</b><p>The rules engine is deterministic and auditable, so compliance can sign off on every path. Claude handles phrasing and messier intents. Both must return the same JSON: next state, reply, extracted date, flags.</p></div>
+        <div><b>Analytics is the second product</b><p>The post-call scorer is the same logic a QA team runs on human agents. Automating the call and auditing the call share one schema, so analytics works on human calls too.</p></div>
+        <div><b>Latency is a feature</b><p>Each turn shows STT, decision and reply-start times. Above roughly 800 ms end to end, people talk over the agent; that budget drives every vendor choice.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="below">
+  <h2>Eval set</h2>
+  <p>Scripted borrower replies with the expected outcome. Run them against the rules engine to see which paths hold. This is the regression suite a PM would extend every time a real call surfaces a new phrasing.</p>
+  <div class="row" style="margin-bottom:10px"><button class="btn primary" id="runEval">Run eval set</button><span class="muted" id="evalSummary"></span></div>
+  <div class="tablewrap"><table id="evalTable"><thead><tr><th>#</th><th>Borrower says</th><th>Expected</th><th>Got</th><th>Result</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<footer>LoanVoice is a product prototype by Meenakshy Bijoy. Borrower records are fictional. No calls are placed, nothing is recorded, and nothing leaves your browser except, when you choose the Claude brain inside claude.ai, the current transcript.</footer>
+</div>
+
+<script>
+/* ---------- data ---------- */
+const BORROWERS = [
+  {id:"L-48213", name:"Ramesh Kumar", lender:"Suvidha Finance", emi:4850, due:"25 October", product:"Personal loan", lang:"hi"},
+  {id:"L-51907", name:"Priya Nair",   lender:"Suvidha Finance", emi:12300, due:"28 October", product:"Two-wheeler loan", lang:"en"},
+  {id:"L-60442", name:"Anil Verma",   lender:"Suvidha Finance", emi:7200, due:"24 October", product:"Business loan", lang:"hi"},
+];
+const T = {
+  en:{
+    greet:b=>`Hello, am I speaking with ${b.name}? This is an automated assistant calling from ${b.lender} about your ${b.product.toLowerCase()}.`,
+    verifyAgain:b=>`Sorry, I did not catch that. Am I speaking with ${b.name}?`,
+    wrong:()=>`No problem. I will not share any details. Thank you for your time.`,
+    disclose:b=>`Thank you. This is a reminder that your EMI of ₹${b.emi.toLocaleString("en-IN")} is due on ${b.due}. Will you be able to make the payment by then?`,
+    ptp:(b,d)=>`Great, I have noted that you will pay by ${d}. You can use the payment link sent to your registered mobile number.`,
+    ext:b=>`I understand. I have noted that you need a few more days. A member of our team will call you back, and you can also reach us on the helpline. Please note I am not able to confirm any changes to charges on this call.`,
+    dispute:()=>`I understand, and I am sorry for the confusion. I will connect you to a team member who can check the account and resolve this.`,
+    distress:()=>`I am really sorry to hear that. I will not go further on this call. A team member will reach out to understand your situation and discuss options.`,
+    unclear:()=>`Sorry, I did not understand. Will you be able to pay by the due date, or do you need more time?`,
+    handoffUnclear:()=>`I am having trouble understanding. Let me connect you to a team member.`,
+    close:()=>`Thank you. If you have any complaint, you can write to grievance@suvidha.example or call the helpline. Have a good day.`,
+    handoffNote:()=>`Transferring to a human agent.`,
+  },
+  hi:{
+    greet:b=>`नमस्ते, क्या मैं ${b.name} जी से बात कर रही हूँ? मैं ${b.lender} की ओर से एक स्वचालित सहायक हूँ, आपके लोन के बारे में कॉल कर रही हूँ।`,
+    verifyAgain:b=>`माफ़ कीजिए, मैं समझ नहीं पाई। क्या मैं ${b.name} जी से बात कर रही हूँ?`,
+    wrong:()=>`कोई बात नहीं। मैं कोई जानकारी साझा नहीं करूँगी। आपके समय के लिए धन्यवाद।`,
+    disclose:b=>`धन्यवाद। यह एक रिमाइंडर है कि आपकी ₹${b.emi.toLocaleString("en-IN")} की EMI ${b.due} को देय है। क्या आप तब तक भुगतान कर पाएँगे?`,
+    ptp:(b,d)=>`बहुत अच्छा, मैंने नोट कर लिया कि आप ${d} तक भुगतान करेंगे। आपके मोबाइल पर भेजे गए लिंक से आप भुगतान कर सकते हैं।`,
+    ext:b=>`मैं समझती हूँ। मैंने नोट कर लिया कि आपको कुछ दिन और चाहिए। हमारी टीम आपको वापस कॉल करेगी। कृपया ध्यान दें, मैं इस कॉल पर शुल्क में किसी बदलाव की पुष्टि नहीं कर सकती।`,
+    dispute:()=>`मैं समझती हूँ, और भ्रम के लिए खेद है। मैं आपको टीम के सदस्य से जोड़ती हूँ जो खाता जाँच कर इसे सुलझाएँगे।`,
+    distress:()=>`यह सुनकर मुझे बहुत दुख हुआ। मैं इस कॉल पर आगे नहीं बढ़ूँगी। हमारी टीम का सदस्य आपसे संपर्क कर आपकी स्थिति समझेगा।`,
+    unclear:()=>`माफ़ कीजिए, मैं समझ नहीं पाई। क्या आप देय तिथि तक भुगतान कर पाएँगे, या आपको और समय चाहिए?`,
+    handoffUnclear:()=>`मुझे समझने में कठिनाई हो रही है। मैं आपको टीम के सदस्य से जोड़ती हूँ।`,
+    close:()=>`धन्यवाद। किसी भी शिकायत के लिए आप grievance@suvidha.example पर लिख सकते हैं या हेल्पलाइन पर कॉल कर सकते हैं। आपका दिन शुभ हो।`,
+    handoffNote:()=>`मानव एजेंट को स्थानांतरित किया जा रहा है।`,
+  }
+};
+
+/* ---------- rules engine: intent classification ---------- */
+const RX = {
+  yes:/\b(yes|yeah|ya|yep|haan|ha|han|ji|bol raha|bol rahi|speaking|myself|main hi|correct|sahi)\b|हाँ|हां|जी|बोल रहा|बोल रही|सही/i,
+  no:/\b(no|nahi|nahin|nope|wrong number|galat number|not here|nahi hai|busy)\b|नहीं|गलत नंबर/i,
+  distress:/\b(naukri|nokri|job|laid off|lost my|hospital|bimar|beemar|illness|sick|accident|death|died|passed away|guzar|expire|mar gaye|funeral|suicide|khud ko|khatam kar)\b|नौकरी|हॉस्पिटल|अस्पताल|बीमार|मृत्यु|गुज़र|गुजर|मर गए|आत्महत्या/i,
+  dispute:/\b(already paid|pehle hi|pehle se|kar diya|kar chuka|kar chuki|paid|galat amount|wrong amount|zyada|too much|dispute|not my loan|mera loan nahi|fraud|kabhi liya hi nahi)\b|पहले ही|कर दिया|कर चुका|कर चुकी|गलत|ज़्यादा|ज्यादा|मेरा लोन नहीं/i,
+  waiver:/\b(waive|waiver|maaf|maafi|penalty hata|chhod do|discount|kam kar)\b|माफ़|माफ|छोड़ दो|हटा दो/i,
+  extension:/\b(time chahiye|thoda time|some time|more time|next week|agle hafte|agle mahine|next month|baad mein|later|salary|tankhwah|10 tarikh|after|wait|ruk|ruko|abhi nahi|not now|can't|cannot|nahi ho payega|mushkil)\b|समय चाहिए|थोड़ा समय|अगले हफ्ते|अगले महीने|बाद में|तनख्वाह|सैलरी|अभी नहीं|मुश्किल/i,
+  ptp:/\b(kar dunga|kar doonga|kar dungi|kar doongi|karunga|karungi|will pay|pay kar|paying|i'll pay|i will|sure|done|ok|okay|theek|thik|kal|aaj|today|tomorrow|parso|day after|monday|tuesday|wednesday|thursday|friday|saturday|sunday|evening|shaam|subah|morning|by \w+|tak)\b|कर दूँगा|कर दूंगा|कर दूँगी|कर दूंगी|करूँगा|करूंगा|ठीक|कल|आज|परसों|शाम|सुबह|सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार/i,
+};
+const DATE_WORDS = [
+  [/\b(aaj|today)\b|आज/i,"today"],[/\b(kal|tomorrow)\b|कल/i,"tomorrow"],[/\b(parso|day after)\b|परसों/i,"the day after tomorrow"],
+  [/\bmonday\b|सोमवार/i,"Monday"],[/\btuesday\b|मंगलवार/i,"Tuesday"],[/\bwednesday\b|बुधवार/i,"Wednesday"],[/\bthursday\b|गुरुवार/i,"Thursday"],
+  [/\bfriday\b|शुक्रवार/i,"Friday"],[/\bsaturday\b|शनिवार/i,"Saturday"],[/\bsunday\b|रविवार/i,"Sunday"],
+  [/\b(evening|shaam)\b|शाम/i,"this evening"],[/\b(\d{1,2})\s*(tarikh|tareekh|th|st|nd|rd)?\b/i,m=>`the ${m[1]}th`],
+];
+function extractDate(t){ for(const [rx,v] of DATE_WORDS){const m=t.match(rx); if(m) return typeof v==="function"?v(m):v;} return "the due date"; }
+
+function classify(text, state){
+  const t=text.toLowerCase();
+  if(RX.distress.test(t)) return "distress";
+  if(state==="verify"){ if(RX.no.test(t)&&!RX.yes.test(t)) return "wrong_party"; if(RX.yes.test(t)) return "confirmed"; return "unclear"; }
+  if(RX.dispute.test(t)) return "dispute";
+  if(RX.waiver.test(t)) return "waiver";
+  if(RX.extension.test(t)) return "extension";
+  if(RX.ptp.test(t)||RX.yes.test(t)) return "ptp";
+  if(RX.no.test(t)) return "extension";
+  return "unclear";
+}
+const BANNED = /\b(legal|court|police|notice|visit|consequence|action against|cibil|blacklist|waived?|waiver)\b|कानूनी|कोर्ट|पुलिस|नोटिस|कार्रवाई|माफ कर दिया/i;
+
+/* rules engine step: returns {reply, next, intent, ptpDate, flags} */
+function rulesStep(ctx, text){
+  const L=T[ctx.lang], b=ctx.borrower, flags=[];
+  const intent=classify(text, ctx.state);
+  let reply="", next=ctx.state, ptpDate=null;
+  if(intent==="distress"){ reply=L.distress()+" "+L.handoffNote(); next="handoff"; flags.push("distress"); }
+  else if(ctx.state==="verify"){
+    if(intent==="confirmed"){ reply=L.disclose(b); next="intent"; }
+    else if(intent==="wrong_party"){ reply=L.wrong(); next="ended"; flags.push("wrong_party"); }
+    else { ctx.reprompts++; if(ctx.reprompts>2){ reply=L.handoffUnclear(); next="handoff"; flags.push("unclear"); } else { reply=L.verifyAgain(b); } }
+  } else if(ctx.state==="intent"){
+    if(intent==="ptp"){ ptpDate=extractDate(text); reply=L.ptp(b,ptpDate)+" "+L.close(); next="ended"; }
+    else if(intent==="extension"){ reply=L.ext(b)+" "+L.close(); next="ended"; flags.push("extension"); }
+    else if(intent==="waiver"){ reply=L.dispute(); next="handoff"; flags.push("waiver_request"); }
+    else if(intent==="dispute"){ reply=L.dispute(); next="handoff"; flags.push("dispute"); }
+    else { ctx.reprompts++; if(ctx.reprompts>2){ reply=L.handoffUnclear(); next="handoff"; flags.push("unclear"); } else { reply=L.unclear(); } }
+  }
+  return {reply, next, intent, ptpDate, flags};
+}
+
+/* ---------- Claude brain (only inside claude.ai) ---------- */
+let sampleFn=null;
+(async()=>{ try{ if(window.claude?.use){ sampleFn=await claude.use("sample"); } }catch(e){ sampleFn=null; } if(!sampleFn){ document.getElementById("brainLLM").disabled=true; document.getElementById("brainLLM").title="Available when this page is opened inside claude.ai"; } })();
+
+async function llmStep(ctx, text){
+  const b=ctx.borrower;
+  const prompt=`You are the brain of a voice agent making a pre-due EMI reminder call for ${b.lender}. Language: ${ctx.lang==="hi"?"Hindi (Devanagari), simple and polite, feminine first person":"Indian English, simple and polite"}.
+Borrower: ${b.name}, ${b.product}, EMI ₹${b.emi}, due ${b.due}. Current state: ${ctx.state}. Reprompts so far: ${ctx.reprompts}.
+Allowed states: verify, intent, handoff, ended. Rules you must follow:
+- In state verify: only confirm identity. If confirmed, disclose the EMI amount and due date and ask if they can pay by then (next=intent). If wrong party, say you will share nothing and end (next=ended, flag wrong_party).
+- In state intent: if they commit to pay, acknowledge with the date they gave (ptpDate) and close with the grievance channel grievance@suvidha.example (next=ended). If they need time, note it, say a team member will call back, say you cannot confirm any change to charges, close with grievance channel (next=ended, flag extension). If they dispute, say they already paid, or ask for a waiver: apologise and hand off (next=handoff, flag dispute or waiver_request). Unclear: reprompt once; after 2 reprompts hand off (flag unclear).
+- Any state: job loss, illness, bereavement or self-harm: express sympathy, stop asking for payment, hand off (next=handoff, flag distress).
+- Never threaten, never mention legal action, CIBIL, visits. Never promise waivers or discounts. Keep reply under 45 words.
+Transcript so far:
+${ctx.turns.map(t=>`${t.who==="agent"?"AGENT":"BORROWER"}: ${t.text}`).join("\n")}
+BORROWER: ${text}
+Return ONLY JSON: {"reply":string,"next":"verify"|"intent"|"handoff"|"ended","intent":string,"ptpDate":string|null,"flags":string[]}`;
+  const out=await sampleFn.json(prompt,{modelTier:"quick",cache:false});
+  if(!out||typeof out.reply!=="string") throw {code:"invalid_json"};
+  if(out.next==="handoff") out.reply+=" "+T[ctx.lang].handoffNote();
+  if(out.intent==="unclear") ctx.reprompts++;
+  return {reply:out.reply, next:out.next, intent:out.intent||"unknown", ptpDate:out.ptpDate||null, flags:Array.isArray(out.flags)?out.flags:[]};
+}
+
+/* ---------- call controller ---------- */
+const $=id=>document.getElementById(id);
+const ctx={borrower:BORROWERS[0], lang:"en", brain:"rules", state:"idle", turns:[], reprompts:0, flags:[], ptpDate:null, latencies:[], blockedLines:0, startedAt:null};
+let recognition=null, listening=false, speaking=false, utterEndedAt=0;
+const hasSTT=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
+const hasTTS=!!window.speechSynthesis;
+
+function renderBorrower(){
+  const b=ctx.borrower;
+  $("borrowerCard").innerHTML=`<div><span>Name</span><br><b>${b.name}</b></div><div><span>Loan</span><br><b>${b.id} · ${b.product}</b></div><div><span>EMI due</span><br><b>₹${b.emi.toLocaleString("en-IN")} on ${b.due}</b></div><div><span>Preferred language</span><br><b>${b.lang==="hi"?"Hindi":"English"}</b></div>`;
+}
+function setPill(s){ const p=$("statePill"); p.textContent=s; p.className="state-pill"+(s==="handoff"?" handoff":s==="ended"?" ended":""); }
+function addTurn(who,text,meta){
+  const tr=$("transcript"); if(tr.querySelector(".empty")) tr.innerHTML="";
+  const d=document.createElement("div"); d.className="turn "+who;
+  d.textContent=text; if(meta){const s=document.createElement("small"); s.textContent=meta; d.appendChild(s);}
+  tr.appendChild(d); tr.scrollTop=tr.scrollHeight;
+  if(who!=="sys") ctx.turns.push({who,text});
+}
+function speak(text){
+  return new Promise(res=>{
+    if(!hasTTS){ res(); return; }
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text); u.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; u.rate=0.98;
+    const voices=speechSynthesis.getVoices(); const v=voices.find(v=>v.lang.replace("_","-")===u.lang)||voices.find(v=>v.lang.startsWith(ctx.lang==="hi"?"hi":"en-IN"))||voices.find(v=>v.lang.startsWith("en"));
+    if(v) u.voice=v;
+    let started=false; u.onstart=()=>{started=true;}; u.onend=u.onerror=()=>res();
+    speaking=true; $("mic").classList.add("speaking"); speechSynthesis.speak(u);
+    setTimeout(()=>{ if(!started) res(); }, 4000); /* some browsers never fire onstart */
+  }).then(()=>{ speaking=false; $("mic").classList.remove("speaking"); });
+}
+async function agentSays(text, meta){ addTurn("agent",text,meta); await speak(text); }
+
+async function startCall(){
+  resetCall(false);
+  ctx.state="verify"; ctx.startedAt=Date.now(); setPill("verify");
+  $("hintTitle").textContent="Agent is speaking"; $("hintBody").textContent="Wait for it to finish, then press the mic (or type) to answer.";
+  await agentSays(T[ctx.lang].greet(ctx.borrower));
+  readyToListen();
+}
+function readyToListen(){
+  if(ctx.state==="ended"||ctx.state==="handoff"){ return; }
+  $("hintTitle").textContent=hasSTT?"Press the mic and answer as the borrower":"Type the borrower's reply";
+  $("hintBody").textContent=hasSTT?"Speak Hindi, English or Hinglish. Release happens automatically when you pause.":"Voice input needs Chrome or Edge; typing works in every browser.";
+  $("mic").disabled=!hasSTT; $("mic").setAttribute("aria-label","Answer as the borrower");
+}
+function listen(){
+  if(listening||speaking) return;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; recognition=new SR();
+  recognition.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; recognition.interimResults=false; recognition.maxAlternatives=1;
+  listening=true; $("mic").classList.add("listening"); $("hintTitle").textContent="Listening…";
+  recognition.onresult=e=>{ const t=e.results[0][0].transcript; utterEndedAt=performance.now(); handleBorrower(t, performance.now()); };
+  recognition.onerror=e=>{ addTurn("sys",`Mic: ${e.error}. You can type instead.`); stopListening(); };
+  recognition.onend=()=>{ stopListening(); };
+  recognition.start();
+}
+function stopListening(){ listening=false; $("mic").classList.remove("listening"); if(ctx.state!=="idle"&&ctx.state!=="ended"&&ctx.state!=="handoff") $("hintTitle").textContent="Press the mic to answer"; }
+
+async function handleBorrower(text, tSpeechEnd){
+  if(ctx.state==="idle"||ctx.state==="ended"||ctx.state==="handoff") return;
+  const t0=performance.now(); const sttMs=tSpeechEnd?Math.round(t0-tSpeechEnd):0;
+  addTurn("borrower",text);
+  $("mic").disabled=true; $("hintTitle").textContent="Agent is thinking…";
+  let step, usedBrain=ctx.brain;
+  try{ step = ctx.brain==="llm"&&sampleFn ? await llmStep(ctx,text) : rulesStep(ctx,text); }
+  catch(e){ usedBrain="rules (fallback)"; step=rulesStep(ctx,text); addTurn("sys","Claude brain unavailable for this turn; rules engine answered."); }
+  const t1=performance.now();
+  /* output guardrail */
+  if(BANNED.test(step.reply)){ ctx.blockedLines++; step.reply=T[ctx.lang].handoffUnclear(); step.next="handoff"; step.flags.push("blocked_output"); addTurn("sys","Output guardrail replaced a non-compliant line."); }
+  ctx.flags.push(...step.flags); if(step.ptpDate) ctx.ptpDate=step.ptpDate; ctx.state=step.next; setPill(step.next);
+  const t2=performance.now();
+  ctx.latencies.push({stt:sttMs, brain:Math.round(t1-t0), tts:Math.round(t2-t0)});
+  $("latStt").textContent=sttMs?sttMs+" ms":"typed"; $("latBrain").textContent=Math.round(t1-t0)+" ms"; $("latTts").textContent=Math.round(t2-t0)+" ms";
+  await agentSays(step.reply, `${usedBrain} · intent: ${step.intent}`);
+  if(ctx.state==="ended"||ctx.state==="handoff") finishCall(); else readyToListen();
+}
+
+function finishCall(){
+  $("mic").disabled=true; $("hintTitle").textContent=ctx.state==="handoff"?"Handed off to a human agent":"Call ended"; $("hintBody").textContent="Scroll to the analytics panel, or start a new call.";
+  renderAnalytics(analyse(ctx));
+}
+function resetCall(clearUI=true){
+  speechSynthesis?.cancel?.(); try{recognition?.abort();}catch(e){}
+  ctx.state="idle"; ctx.turns=[]; ctx.reprompts=0; ctx.flags=[]; ctx.ptpDate=null; ctx.latencies=[]; ctx.blockedLines=0;
+  setPill("idle"); $("mic").disabled=false; $("mic").classList.remove("listening","speaking"); $("mic").setAttribute("aria-label","Start call");
+  $("latStt").textContent=$("latBrain").textContent=$("latTts").textContent="—";
+  if(clearUI){ $("transcript").innerHTML='<div class="empty">Transcript appears here.</div>'; $("hintTitle").textContent="Press to start the call"; $("hintBody").textContent="The agent speaks first. When it finishes, the mic opens and you answer as the borrower."; $("analyticsBody").hidden=true; $("analyticsEmpty").hidden=false; }
+}
+
+/* ---------- post-call analytics ---------- */
+function analyse(c){
+  const agentText=c.turns.filter(t=>t.who==="agent").map(t=>t.text).join(" ");
+  const borrowerText=c.turns.filter(t=>t.who==="borrower").map(t=>t.text).join(" ");
+  const f=new Set(c.flags);
+  const outcome = f.has("wrong_party")?"Wrong party, no details shared" : f.has("distress")?"Distress, automation stopped" : f.has("dispute")?"Dispute raised" : f.has("waiver_request")?"Waiver requested" : f.has("unclear")?"Intent unclear" : f.has("extension")?"Needs more time" : c.ptpDate?"Promise to pay":"Incomplete";
+  const neg=/\b(angry|gussa|pareshan|tang|harass|baar baar|stop calling|band karo|mat karo|bakwas)\b|गुस्सा|परेशान|तंग|बंद करो|मत करो/i.test(borrowerText);
+  const pos=/\b(thank|dhanyavad|shukriya|sure|theek|ok|okay)\b|धन्यवाद|शुक्रिया|ठीक/i.test(borrowerText);
+  const sentiment = f.has("distress")?"Distressed" : neg?"Negative" : pos?"Cooperative" : "Neutral";
+  const confirmed = c.turns.length>2 && !f.has("wrong_party");
+  const checks=[
+    {k:"Agent disclosed identity and purpose before anything else", v:/automated assistant|स्वचालित सहायक/.test(c.turns[0]?.text||"")?"pass":"fail"},
+    {k:"No loan details before identity confirmed", v:f.has("wrong_party")? (/₹/.test(agentText)?"fail":"pass") : confirmed?"pass":"na"},
+    {k:"EMI amount and due date stated", v:confirmed? (/₹/.test(agentText)?"pass":"fail") : "na"},
+    {k:"No threatening or coercive language", v:c.blockedLines===0 && !BANNED.test(agentText)?"pass":"fail"},
+    {k:"No waiver or discount promised", v:/waived|discount|माफ कर दिया/i.test(agentText)?"fail":"pass"},
+    {k:"Distress handled with handoff, no payment ask after", v:f.has("distress")? (c.state==="handoff"?"pass":"fail") : "na"},
+    {k:"Grievance channel stated on completed call", v:c.state==="ended"&&!f.has("wrong_party")? (/grievance@/.test(agentText)?"pass":"fail") : "na"},
+    {k:"Handed off within two reprompts when unclear", v:f.has("unclear")? (c.reprompts<=3?"pass":"fail") : "na"},
+  ];
+  const scored=checks.filter(x=>x.v!=="na"); const passed=scored.filter(x=>x.v==="pass").length;
+  let score=Math.round(100*passed/Math.max(1,scored.length));
+  if(sentiment==="Negative") score=Math.max(0,score-10);
+  const avg=c.latencies.length?Math.round(c.latencies.reduce((a,l)=>a+l.tts,0)/c.latencies.length):0;
+  return {loanId:c.borrower.id, language:c.lang, brain:c.brain, outcome, ptpDate:c.ptpDate, sentiment, handoff:c.state==="handoff", turns:c.turns.length, avgDecisionMs:avg, flags:[...f], checks, score, transcript:c.turns};
+}
+function renderAnalytics(a){
+  $("analyticsEmpty").hidden=true; $("analyticsBody").hidden=false;
+  $("score").textContent=a.score; $("aOutcome").textContent=a.outcome; $("aPtp").textContent=a.ptpDate?`Yes, by ${a.ptpDate}`:"No";
+  $("aSent").textContent=a.sentiment; $("aHand").textContent=a.handoff?"Yes, warm transfer note created":"No"; $("aTurns").textContent=`${a.turns} · avg decision ${a.avgDecisionMs} ms`;
+  $("checks").innerHTML=a.checks.map(c=>`<li class="${c.v}">${c.k}${c.v==="na"?" <span class='muted'>(n/a)</span>":""}</li>`).join("");
+  $("jsonOut").textContent=JSON.stringify(a,null,2); $("jsonOut").hidden=true;
+  $("analytics").scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+/* ---------- eval set ---------- */
+const EVALS=[
+  {say:["haan bol raha hoon","kal kar dunga"], expect:"ptp"},
+  {say:["yes speaking","I'll pay by Friday evening"], expect:"ptp"},
+  {say:["ji","थोड़ा समय चाहिए, सैलरी 5 तारीख को आती है"], expect:"extension"},
+  {say:["haan","abhi nahi ho payega, agle hafte"], expect:"extension"},
+  {say:["yes","I already paid this on Monday"], expect:"dispute"},
+  {say:["haan","ye amount galat hai, zyada dikha raha hai"], expect:"dispute"},
+  {say:["yes","can you waive the late fee"], expect:"waiver_request"},
+  {say:["haan ji","meri naukri chali gayi, abhi mushkil hai"], expect:"distress"},
+  {say:["yes","my father passed away last week"], expect:"distress"},
+  {say:["nahi, galat number hai"], expect:"wrong_party"},
+  {say:["haan","hmm","kya?","achha"], expect:"unclear"},
+  {say:["yes","band karo ye calls, baar baar mat karo"], expect:"extension_or_unclear"},
+];
+function runEvals(){
+  const tb=$("evalTable").querySelector("tbody"); tb.innerHTML=""; let pass=0;
+  EVALS.forEach((ev,i)=>{
+    const c={borrower:BORROWERS[0], lang:"en", state:"verify", turns:[], reprompts:0}; let flags=[], ptp=null, lastIntent="";
+    for(const s of ev.say){ if(c.state==="ended"||c.state==="handoff") break; const r=rulesStep(c,s); c.turns.push({who:"borrower",text:s},{who:"agent",text:r.reply}); flags.push(...r.flags); lastIntent=r.intent; if(r.ptpDate) ptp=r.ptpDate; c.state=r.next; }
+    const got = flags.includes("distress")?"distress":flags.includes("wrong_party")?"wrong_party":flags.includes("dispute")?"dispute":flags.includes("waiver_request")?"waiver_request":flags.includes("unclear")?"unclear":flags.includes("extension")?"extension":ptp?"ptp":"incomplete";
+    const ok = ev.expect==="extension_or_unclear" ? (got==="extension"||got==="unclear") : got===ev.expect; if(ok) pass++;
+    tb.insertAdjacentHTML("beforeend",`<tr><td>${i+1}</td><td>${ev.say.map(s=>`“${s}”`).join(" → ")}</td><td>${ev.expect.replace(/_/g," ")}</td><td>${got.replace(/_/g," ")}${ptp?` (${ptp})`:""}</td><td class="res ${ok?"pass":"fail"}">${ok?"pass":"fail"}</td></tr>`);
+  });
+  $("evalSummary").textContent=`${pass} of ${EVALS.length} passed`;
+}
+
+/* ---------- wiring ---------- */
+BORROWERS.forEach((b,i)=>{ const o=document.createElement("option"); o.value=i; o.textContent=`${b.name} · ${b.id}`; $("borrowerSel").appendChild(o); });
+$("borrowerSel").onchange=e=>{ ctx.borrower=BORROWERS[+e.target.value]; setLang(ctx.borrower.lang); renderBorrower(); resetCall(); };
+function setLang(l){ ctx.lang=l; $("langEn").setAttribute("aria-pressed",l==="en"); $("langHi").setAttribute("aria-pressed",l==="hi"); }
+$("langEn").onclick=()=>{setLang("en");}; $("langHi").onclick=()=>{setLang("hi");};
+function setBrain(b){ ctx.brain=b; $("brainRules").setAttribute("aria-pressed",b==="rules"); $("brainLLM").setAttribute("aria-pressed",b==="llm"); }
+$("brainRules").onclick=()=>setBrain("rules"); $("brainLLM").onclick=()=>setBrain("llm");
+$("mic").onclick=()=>{ if(ctx.state==="idle") startCall(); else if(!speaking) listen(); };
+function sendTyped(){ const v=$("typed").value.trim(); if(!v) return; $("typed").value=""; if(ctx.state==="idle"){ startCall().then(()=>handleBorrower(v,0)); } else if(!speaking) handleBorrower(v,0); }
+$("sendTyped").onclick=sendTyped; $("typed").addEventListener("keydown",e=>{ if(e.key==="Enter") sendTyped(); });
+$("endCall").onclick=()=>{ if(ctx.state!=="idle"){ ctx.state=ctx.state==="handoff"?"handoff":"ended"; setPill(ctx.state); finishCall(); } };
+$("newCall").onclick=()=>resetCall();
+$("showJson").onclick=()=>{ const j=$("jsonOut"); j.hidden=!j.hidden; $("showJson").textContent=j.hidden?"Show JSON":"Hide JSON"; };
+$("runEval").onclick=runEvals;
+setLang(ctx.borrower.lang); renderBorrower();
+if(hasTTS){ speechSynthesis.onvoiceschanged=()=>{}; speechSynthesis.getVoices(); }
+if(!hasSTT){ $("hintBody").textContent="Voice input needs Chrome or Edge. In this browser, press the mic to start and then type the borrower's replies; the agent still speaks aloud."; }
+</script>
+</body>
+</html>
