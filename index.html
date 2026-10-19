@@ -308,6 +308,7 @@ const RX = {
   yes:/\b(yes|yeah|ya|yep|haan|ha|han|ji|bol raha|bol rahi|speaking|myself|main hi|correct|sahi)\b|हाँ|हां|जी|बोल रहा|बोल रही|सही/i,
   no:/\b(no|nahi|nahin|nope|wrong number|galat number|not here|nahi hai|busy)\b|नहीं|गलत नंबर/i,
   distress:/\b(naukri|nokri|job|laid off|lost my|hospital|bimar|beemar|illness|sick|accident|death|died|passed away|guzar|expire|mar gaye|funeral|suicide|khud ko|khatam kar)\b|नौकरी|हॉस्पिटल|अस्पताल|बीमार|मृत्यु|गुज़र|गुजर|मर गए|आत्महत्या/i,
+  confused:/\b(samajh nahi|samjha nahi|samjhi nahi|kya bola|kya bol|kya kaha|phir se|dobara|dubara|repeat|pardon|say again|didn't understand|did not understand|don't understand|not clear|sunai nahi|awaaz nahi)\b|समझ नहीं|समझा नहीं|समझी नहीं|क्या बोल|क्या कहा|फिर से|दोबारा|दुबारा|सुनाई नहीं|आवाज़ नहीं|आवाज नहीं/i,
   complaint:/\b(stop calling|don't call|dont call|do not call|band karo|mat karo|baar baar|harass|pareshan|gussa|bakwas|complaint|shikayat)\b|बंद करो|मत करो|बार बार|परेशान|गुस्सा|बकवास|शिकायत/i,
   dispute:/\b(already paid|pehle hi|pehle se|kar diya|kar chuka|kar chuki|paid|galat amount|wrong amount|zyada|too much|dispute|not my loan|mera loan nahi|fraud|kabhi liya hi nahi)\b|पहले ही|कर दिया|कर चुका|कर चुकी|गलत|ज़्यादा|ज्यादा|मेरा लोन नहीं/i,
   waiver:/\b(waive|waiver|maaf|maafi|penalty hata|chhod do|discount|kam kar)\b|माफ़|माफ|छोड़ दो|हटा दो/i,
@@ -326,6 +327,7 @@ function classify(text, state){
   const t=text.toLowerCase();
   if(RX.distress.test(t)) return "distress";
   if(RX.complaint.test(t)) return "complaint";
+  if(RX.confused.test(t)) return "unclear";
   if(state==="verify"){ if(RX.no.test(t)&&!RX.yes.test(t)) return "wrong_party"; if(RX.yes.test(t)) return "confirmed"; return "unclear"; }
   if(RX.dispute.test(t)) return "dispute";
   if(RX.waiver.test(t)) return "waiver";
@@ -401,17 +403,44 @@ function addTurn(who,text,meta){
   tr.appendChild(d); tr.scrollTop=tr.scrollHeight;
   if(who!=="sys") ctx.turns.push({who,text});
 }
-function speak(text){
+/* Chrome fills the voice list asynchronously; wait for it once. */
+function loadVoices(){
   return new Promise(res=>{
-    if(!hasTTS){ res(); return; }
-    speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text); u.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; u.rate=0.98;
-    const voices=speechSynthesis.getVoices(); const v=voices.find(v=>v.lang.replace("_","-")===u.lang)||voices.find(v=>v.lang.startsWith(ctx.lang==="hi"?"hi":"en-IN"))||voices.find(v=>v.lang.startsWith("en"));
-    if(v) u.voice=v;
-    let started=false; u.onstart=()=>{started=true;}; u.onend=u.onerror=()=>res();
-    speaking=true; $("mic").classList.add("speaking"); speechSynthesis.speak(u);
-    setTimeout(()=>{ if(!started) res(); }, 4000); /* some browsers never fire onstart */
-  }).then(()=>{ speaking=false; $("mic").classList.remove("speaking"); });
+    if(!hasTTS){ res([]); return; }
+    let v=speechSynthesis.getVoices(); if(v.length){ res(v); return; }
+    const done=()=>{ speechSynthesis.onvoiceschanged=null; res(speechSynthesis.getVoices()); };
+    speechSynthesis.onvoiceschanged=done; setTimeout(done,1500);
+  });
+}
+let warnedNoHindiVoice=false;
+function pickVoice(voices, lang){
+  const norm=v=>v.lang.replace("_","-").toLowerCase();
+  if(lang==="hi"){
+    /* Hindi text must never go to an English voice: it skips the Devanagari and reads only the numbers. */
+    const hi=voices.filter(v=>norm(v).startsWith("hi"));
+    return hi.find(v=>/google/i.test(v.name))||hi.find(v=>/lekha|neural|natural/i.test(v.name))||hi[0]||null;
+  }
+  const en=voices.filter(v=>norm(v).startsWith("en"));
+  return en.find(v=>norm(v)==="en-in")||en.find(v=>/india/i.test(v.name))||en.find(v=>norm(v)==="en-gb")||en[0]||null;
+}
+async function speak(text){
+  if(!hasTTS) return;
+  const voices=await loadVoices();
+  const v=pickVoice(voices, ctx.lang);
+  if(ctx.lang==="hi"&&!v&&!warnedNoHindiVoice){ warnedNoHindiVoice=true; addTurn("sys","No Hindi voice is installed in this browser, so Hindi replies may be silent or read oddly. Chrome desktop usually has “Google हिन्दी”; on macOS add Hindi (Lekha) under Accessibility → Spoken Content → System voice."); }
+  /* Chrome cuts off utterances longer than ~15 s, so speak sentence by sentence. */
+  const parts=text.split(/(?<=[।\.\?!])\s+/).filter(Boolean);
+  speechSynthesis.cancel(); speaking=true; $("mic").classList.add("speaking");
+  for(const part of parts){
+    await new Promise(res=>{
+      const u=new SpeechSynthesisUtterance(part); u.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; u.rate=0.98;
+      if(v) u.voice=v;
+      let started=false; u.onstart=()=>{started=true;}; u.onend=u.onerror=()=>res();
+      speechSynthesis.speak(u);
+      setTimeout(()=>{ if(!started) res(); }, 4000); /* some browsers never fire onstart */
+    });
+  }
+  speaking=false; $("mic").classList.remove("speaking");
 }
 async function agentSays(text, meta){ addTurn("agent",text,meta); await speak(text); }
 
@@ -522,6 +551,7 @@ const EVALS=[
   {say:["haan","hmm","kya?","achha"], expect:"unclear"},
   {say:["yes","band karo ye calls, baar baar mat karo"], expect:"complaint"},
   {say:["yes","please stop calling me, I will pay when I can"], expect:"complaint"},
+  {say:["haan","क्या बोल रहे हैं आप मुझे समझ नहीं आ रहा","haan theek hai kal kar dunga"], expect:"ptp"},
 ];
 function runEvals(){
   const tb=$("evalTable").querySelector("tbody"); tb.innerHTML=""; let pass=0;
@@ -550,7 +580,7 @@ $("newCall").onclick=()=>resetCall();
 $("showJson").onclick=()=>{ const j=$("jsonOut"); j.hidden=!j.hidden; $("showJson").textContent=j.hidden?"Show JSON":"Hide JSON"; };
 $("runEval").onclick=runEvals;
 setLang(ctx.borrower.lang); renderBorrower();
-if(hasTTS){ speechSynthesis.onvoiceschanged=()=>{}; speechSynthesis.getVoices(); }
+if(hasTTS){ loadVoices(); }
 if(!hasSTT){ $("hintBody").textContent="Voice input needs Chrome or Edge. In this browser, press the mic to start and then type the borrower's replies; the agent still speaks aloud."; }
 </script>
 <script type="module">
