@@ -143,9 +143,9 @@ footer{margin-top:40px;font-size:13px;color:var(--ink-2);border-top:1px solid va
         <button id="langEn" aria-pressed="true">English</button>
         <button id="langHi" aria-pressed="false">हिंदी</button>
       </div>
-      <div class="seg" role="group" aria-label="Agent brain" title="Claude is used when this page runs inside claude.ai and you allow it; otherwise the deterministic engine runs.">
+      <div class="seg" role="group" aria-label="Agent brain" title="The LLM brain needs an API key and is switched off on this public demo; the deterministic rules engine runs every call.">
         <button id="brainRules" aria-pressed="true">Rules engine</button>
-        <button id="brainLLM" aria-pressed="false">Claude</button>
+        <button id="brainLLM" aria-pressed="false">LLM</button>
       </div>
       <select id="voiceSel" aria-label="Agent voice" title="Which browser voice speaks the agent's lines"></select>
     </div>
@@ -199,7 +199,7 @@ footer{margin-top:40px;font-size:13px;color:var(--ink-2);border-top:1px solid va
 
 <section class="below">
   <h2>Conversation design</h2>
-  <p>Every call walks the same state machine whether the rules engine or Claude is driving. The brain decides the words; the state machine decides what is allowed. That split is what keeps a regulated call safe to automate.</p>
+  <p>Every call walks the same state machine whether the rules engine or an LLM is driving. The brain decides the words; the state machine decides what is allowed. That split is what keeps a regulated call safe to automate.</p>
   <div class="mermaid-wrap">
 <pre class="mermaid">
 stateDiagram-v2
@@ -246,7 +246,7 @@ stateDiagram-v2
       <h2>Why these choices</h2>
       <div class="notes">
         <div><b>Browser STT/TTS first</b><p>The Web Speech API ships in Chrome with hi-IN and en-IN voices, which makes the demo zero-dependency. In production this swaps for a streaming ASR tuned on Indian code-mixed speech and a lower-latency TTS; the state machine does not change.</p></div>
-        <div><b>Two brains, one contract</b><p>The rules engine is deterministic and auditable, so compliance can sign off on every path. Claude handles phrasing and messier intents. Both must return the same JSON: next state, reply, extracted date, flags.</p></div>
+        <div><b>Two brains, one contract</b><p>The rules engine is deterministic and auditable, so compliance can sign off on every path. An LLM handles phrasing and messier intents. Both must return the same JSON: next state, reply, extracted date, flags.</p></div>
         <div><b>Analytics is the second product</b><p>The post-call scorer is the same logic a QA team runs on human agents. Automating the call and auditing the call share one schema, so analytics works on human calls too.</p></div>
         <div><b>Latency is a feature</b><p>Each turn shows STT, decision and reply-start times. Above roughly 800 ms end to end, people talk over the agent; that budget drives every vendor choice.</p></div>
       </div>
@@ -261,7 +261,7 @@ stateDiagram-v2
   <div class="tablewrap"><table id="evalTable"><thead><tr><th>#</th><th>Borrower says</th><th>Expected</th><th>Got</th><th>Result</th></tr></thead><tbody></tbody></table></div>
 </section>
 
-<footer>LoanVoice is a product prototype by Meenakshy Bijoy. Borrower records are fictional. No calls are placed, nothing is recorded, and nothing leaves your browser except, when you choose the Claude brain inside claude.ai, the current transcript.</footer>
+<footer>LoanVoice is a product prototype by Meenakshy Bijoy. Borrower records are fictional. No calls are placed, nothing is recorded, and nothing leaves your browser.</footer>
 </div>
 
 <script>
@@ -362,9 +362,10 @@ function rulesStep(ctx, text){
   return {reply, next, intent, ptpDate, flags};
 }
 
-/* ---------- Claude brain (only inside claude.ai) ---------- */
+/* ---------- LLM brain (needs an API key; off on the public demo) ---------- */
 let sampleFn=null;
-(async()=>{ try{ if(window.claude?.use){ sampleFn=await claude.use("sample"); } }catch(e){ sampleFn=null; } if(!sampleFn){ document.getElementById("brainLLM").disabled=true; document.getElementById("brainLLM").title="Available when this page is opened inside claude.ai"; } })();
+/* To enable: set sampleFn to an object with json(prompt) -> Promise<object> backed by your LLM provider. */
+(()=>{ if(!sampleFn){ const b=document.getElementById("brainLLM"); b.disabled=true; b.title="Needs an LLM API key; switched off on this public demo"; } })();
 
 async function llmStep(ctx, text){
   const b=ctx.borrower;
@@ -508,7 +509,7 @@ async function handleBorrower(text, tSpeechEnd){
   $("mic").disabled=true; $("hintTitle").textContent="Agent is thinking…";
   let step, usedBrain=ctx.brain;
   try{ step = ctx.brain==="llm"&&sampleFn ? await llmStep(ctx,text) : rulesStep(ctx,text); }
-  catch(e){ usedBrain="rules (fallback)"; step=rulesStep(ctx,text); addTurn("sys","Claude brain unavailable for this turn; rules engine answered."); }
+  catch(e){ usedBrain="rules (fallback)"; step=rulesStep(ctx,text); addTurn("sys","LLM brain unavailable for this turn; rules engine answered."); }
   const t1=performance.now();
   /* output guardrail */
   if(BANNED.test(step.reply)){ ctx.blockedLines++; step.reply=T[ctx.lang].handoffUnclear(); step.next="handoff"; step.flags.push("blocked_output"); addTurn("sys","Output guardrail replaced a non-compliant line."); }
