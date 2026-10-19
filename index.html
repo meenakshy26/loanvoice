@@ -422,13 +422,14 @@ function pickVoice(voices, lang){
   if(chosen&&chosen!=="auto"){ const m=voices.find(v=>v.name===chosen); if(m) return m; }
   if(lang==="hi"){
     /* Hindi text must never go to an English voice: it skips the Devanagari and reads only the numbers. */
-    /* Local voices first: online ones (e.g. Google हिन्दी) silently fail on networks that block Google TTS. */
+    /* Google हिन्दी sounds far more natural than the local voices, so it goes first;
+       if it fails to start (network blocks Google TTS) speak() falls back to a local Hindi voice. */
     const hi=voices.filter(v=>norm(v).startsWith("hi"));
-    return hi.find(v=>v.localService&&/lekha|neural|natural/i.test(v.name))||hi.find(v=>v.localService)||hi.find(v=>/google/i.test(v.name))||hi[0]||null;
+    return hi.find(v=>/google/i.test(v.name))||hi.find(v=>v.localService&&/lekha|neural|natural/i.test(v.name))||hi.find(v=>v.localService)||hi[0]||null;
   }
   const en=voices.filter(v=>norm(v).startsWith("en"));
   const local=en.filter(v=>v.localService);
-  return local.find(v=>norm(v)==="en-in")||local.find(v=>/india|rishi|veena/i.test(v.name))||en.find(v=>norm(v)==="en-in")||local.find(v=>norm(v)==="en-gb")||local[0]||en[0]||null;
+  return en.find(v=>norm(v)==="en-in"&&/google/i.test(v.name))||local.find(v=>norm(v)==="en-in")||local.find(v=>/india|rishi|veena/i.test(v.name))||en.find(v=>norm(v)==="en-in")||en.find(v=>/google uk english female/i.test(v.name))||local.find(v=>norm(v)==="en-gb")||local[0]||en[0]||null;
 }
 function localFallback(voices, v, lang){
   if(!v||v.localService) return null;
