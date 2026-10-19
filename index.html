@@ -422,29 +422,41 @@ function pickVoice(voices, lang){
   if(chosen&&chosen!=="auto"){ const m=voices.find(v=>v.name===chosen); if(m) return m; }
   if(lang==="hi"){
     /* Hindi text must never go to an English voice: it skips the Devanagari and reads only the numbers. */
+    /* Local voices first: online ones (e.g. Google हिन्दी) silently fail on networks that block Google TTS. */
     const hi=voices.filter(v=>norm(v).startsWith("hi"));
-    return hi.find(v=>/google/i.test(v.name))||hi.find(v=>/lekha|neural|natural/i.test(v.name))||hi[0]||null;
+    return hi.find(v=>v.localService&&/lekha|neural|natural/i.test(v.name))||hi.find(v=>v.localService)||hi.find(v=>/google/i.test(v.name))||hi[0]||null;
   }
   const en=voices.filter(v=>norm(v).startsWith("en"));
-  return en.find(v=>norm(v)==="en-in")||en.find(v=>/india/i.test(v.name))||en.find(v=>norm(v)==="en-gb")||en[0]||null;
+  const local=en.filter(v=>v.localService);
+  return local.find(v=>norm(v)==="en-in")||local.find(v=>/india|rishi|veena/i.test(v.name))||en.find(v=>norm(v)==="en-in")||local.find(v=>norm(v)==="en-gb")||local[0]||en[0]||null;
+}
+function localFallback(voices, v, lang){
+  if(!v||v.localService) return null;
+  const norm=x=>x.lang.replace("_","-").toLowerCase();
+  return voices.find(x=>x.localService&&norm(x).startsWith(lang==="hi"?"hi":"en"))||null;
 }
 async function speak(text){
   if(!hasTTS) return;
   const voices=await loadVoices();
-  const v=pickVoice(voices, ctx.lang);
+  let v=pickVoice(voices, ctx.lang);
   lastVoiceName=v?`${v.name}${v.localService?"":" (online)"}`:"browser default";
   if(ctx.lang==="hi"&&!v&&!warnedNoHindiVoice){ warnedNoHindiVoice=true; addTurn("sys","No Hindi voice is installed in this browser, so Hindi replies may be silent or read oddly. Chrome desktop usually has “Google हिन्दी”; on macOS add Hindi (Lekha) under Accessibility → Spoken Content → System voice."); }
   /* Chrome cuts off utterances longer than ~15 s, so speak sentence by sentence. */
   const parts=text.split(/(?<=[।\.\?!])\s+/).filter(Boolean);
   speechSynthesis.cancel(); speaking=true; $("mic").classList.add("speaking");
+  const sayPart=(part, voice)=>new Promise(res=>{
+    const u=new SpeechSynthesisUtterance(part); u.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; u.rate=0.98;
+    if(voice) u.voice=voice;
+    let started=false; u.onstart=()=>{started=true;}; u.onend=()=>res(started?"ok":"silent"); u.onerror=()=>res("error");
+    speechSynthesis.speak(u);
+    setTimeout(()=>{ if(!started){ speechSynthesis.cancel(); res("silent"); } }, voice&&!voice.localService?2500:4000);
+  });
   for(const part of parts){
-    await new Promise(res=>{
-      const u=new SpeechSynthesisUtterance(part); u.lang=ctx.lang==="hi"?"hi-IN":"en-IN"; u.rate=0.98;
-      if(v) u.voice=v;
-      let started=false; u.onstart=()=>{started=true;}; u.onend=u.onerror=()=>res();
-      speechSynthesis.speak(u);
-      setTimeout(()=>{ if(!started) res(); }, 4000); /* some browsers never fire onstart */
-    });
+    const r=await sayPart(part, v);
+    if(r!=="ok"){ /* online voice did not start: retry this and later parts with a local voice */
+      const fb=localFallback(voices, v, ctx.lang);
+      if(fb){ v=fb; lastVoiceName=`${fb.name} (fallback: online voice failed)`; await sayPart(part, fb); }
+    }
   }
   speaking=false; $("mic").classList.remove("speaking");
 }
